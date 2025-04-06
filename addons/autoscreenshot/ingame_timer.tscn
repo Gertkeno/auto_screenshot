@@ -1,0 +1,11 @@
+[gd_scene load_steps=2 format=3 uid="uid://btc85sjj5spjj"]
+
+[ext_resource type="Script" path="res://addons/autoscreenshot/ingame_screenshotter.gd" id="1_mjc1u"]
+
+[node name="Autoscreenshot" type="Timer"]
+process_mode = 3
+wait_time = 180.0
+autostart = true
+script = ExtResource("1_mjc1u")
+target_directory = "/mnt/OldTownRoad/gert/Videos/stream/devlog/godot_auto_screenshot"
+format_string = "{year}-{month}-{day}_{hour}.{minute}.{second}_Fulfillment_na_ingame.png"
