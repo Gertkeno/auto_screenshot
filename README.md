@@ -4,6 +4,9 @@ Automatically take in-development screenshots of the full editor, the 2D or 3D
 viewport, even in-game testing at regular intervals. Uses history to skip some
 screenshots where presumably no visual work elapsed.
 
+Icon modified from [Delapouite](https://delapouite.com/)'s [Photo Camera
+Icon][camera-icon] and [Backward Time Icon][time-icon]
+
 ## Editor Settings
 
 Options assigned as editor settings
@@ -36,3 +39,6 @@ viewport (canvas), 3d viewport, full-editor, or in-game.
 Default value: `{year}-{month}-{day}_{hour}.{minute}.{second}_{project}_{scene}_{mode}.png`
 
 Always saves in `png` format.
+
+[camera-icon]: https://game-icons.net/1x1/delapouite/photo-camera.html
+[time-icon]: https://game-icons.net/1x1/delapouite/backward-time.html
