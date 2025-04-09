@@ -1,5 +1,7 @@
 # Auto Screenshot
 
+Godot 4.3+
+
 Automatically take in-development screenshots of the full editor, the 2D or 3D
 viewport, even in-game testing at regular intervals. Uses history to skip some
 screenshots where presumably no visual work elapsed.

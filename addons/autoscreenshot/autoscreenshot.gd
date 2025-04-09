@@ -18,10 +18,11 @@ extends EditorPlugin
 # `  target folder
 # `  file format string YYYY-MM-DD_hh.mm.ss_project_scene_mode.png
 
+const INGAME_AUTOLOAD_NAME = "AutoScreenShotter"
 const editor_settings_preface = "editors/auto_screenshot/"
 var default_editor_settings: Dictionary = {
-	"enable_2d": false,
-	"enable_3d": false,
+	"enable_2d": true,
+	"enable_3d": true,
 	"enable_editor": true,
 	"minutes_per_screenshot": 15,
 	"skip_by_history": true,
@@ -41,7 +42,7 @@ func _enter_tree() -> void:
 	ur = self.get_undo_redo()
 	# Editor settings #
 	var ed_settings := EditorInterface.get_editor_settings()
-	for key in default_editor_settings.keys():
+	for key: String in default_editor_settings.keys():
 		var default: Variant = default_editor_settings[key]
 		if !ed_settings.has_setting(editor_settings_preface + key):
 			print("Making editor setting: ", editor_settings_preface + key)
@@ -135,7 +136,7 @@ func _exit_tree() -> void:
 	if editor_manual_button:
 		editor_manual_button.queue_free()
 		editor_manual_button = null
-	self.remove_autoload_singleton("AutoScreenShotter")
+	self.remove_autoload_singleton(INGAME_AUTOLOAD_NAME)
 
 	# don't do this lol
 	#var ed_settings := EditorInterface.get_editor_settings()
@@ -152,14 +153,13 @@ func make_manual_button() -> void:
 	editor_manual_button.expand_icon = true
 	editor_manual_button.custom_minimum_size.x = 30
 	editor_manual_button.custom_minimum_size.y = 30
-	editor_manual_button.pressed.connect(take_a_screenshot)
 	add_control_to_container(CONTAINER_TOOLBAR, editor_manual_button)
+	editor_manual_button.pressed.connect(take_a_screenshot)
 
 
 var last_pics_of_open_scene: Dictionary = {}
 func take_a_screenshot() -> void:
 	var ed_settings := EditorInterface.get_editor_settings()
-
 	# check history version #
 	var edited_scene_root: Node = EditorInterface.get_edited_scene_root()
 	var history_id: int = ur.get_object_history_id(edited_scene_root)
@@ -187,18 +187,17 @@ func take_a_screenshot() -> void:
 	datetime["hour"] = "%02d" % datetime["hour"]
 	datetime["minute"] = "%02d" % datetime["minute"]
 	datetime["second"] = "%02d" % datetime["second"]
-
 	var format_string: String = ed_settings.get_setting(editor_settings_preface + "file_format_string")
 
 	# ensure directory
 	var target_directory: String = ed_settings.get_setting(editor_settings_preface + "target_folder")
 	DirAccess.make_dir_recursive_absolute(target_directory)
 
+	# 2d/3d viewport
 	var enable_2d: bool = ed_settings.get_setting(editor_settings_preface + "enable_2d")
 	var enable_3d: bool = ed_settings.get_setting(editor_settings_preface + "enable_3d")
 	var enable_editor: bool = ed_settings.get_setting(editor_settings_preface + "enable_editor")
 
-	# 2d/3d viewport
 	var filename: String
 	var viewport: Viewport
 	if (edited_scene_root is Node3D) and enable_3d:
@@ -227,6 +226,11 @@ func take_a_screenshot() -> void:
 		editor_img.save_png(target_directory.path_join(editor_filename))
 
 
+func has_autoload() -> bool:
+	var autoload_path: String = ProjectSettings.get_setting("autoload/"+INGAME_AUTOLOAD_NAME, "")
+	return not autoload_path.is_empty()
+
+
 func editor_setting_changed() -> void:
 	var ed_settings := EditorInterface.get_editor_settings()
 
@@ -234,8 +238,9 @@ func editor_setting_changed() -> void:
 	# adding/removing singleton commits history.
 	if enable_in_game:
 		make_in_game_screenshot_scene(ed_settings)
-	else:
-		self.remove_autoload_singleton("AutoScreenShotter")
+	elif has_autoload():
+		self.remove_autoload_singleton(INGAME_AUTOLOAD_NAME)
+		last_timer_settings = {}
 	
 	var minutes_per_screenshot: float = ed_settings.get_setting(editor_settings_preface + "minutes_per_screenshot")
 	var new_wait_time: float = max(10.0, minutes_per_screenshot * 60)
@@ -260,6 +265,7 @@ func editor_setting_changed() -> void:
 			editor_manual_button = null
 
 
+var last_timer_settings: Dictionary = {}
 func make_in_game_screenshot_scene(ed_settings: EditorSettings) -> void:
 	# in-game timer properties
 	var minutes: float = ed_settings.get_setting(editor_settings_preface + "minutes_per_in_game_screenshot")
@@ -275,6 +281,14 @@ func make_in_game_screenshot_scene(ed_settings: EditorSettings) -> void:
 	}
 	var editor_info_formatted_string: String = format_string.format(editor_info)
 
+	# deduce if in-game timer settings have updated and require a new autoload
+	var skip_set_autoload: bool = not last_timer_settings.is_empty() \
+		and last_timer_settings["format_string"] == editor_info_formatted_string \
+		and last_timer_settings["wait_time"] == minutes \
+		and last_timer_settings["target_directory"] == target_directory
+	if skip_set_autoload:
+		return
+
 	# set export properties for packed scene
 	var timer_script: Script = load("res://addons/autoscreenshot/ingame_screenshotter.gd")
 	if timer_script == null:
@@ -289,15 +303,22 @@ func make_in_game_screenshot_scene(ed_settings: EditorSettings) -> void:
 	timer.format_string = editor_info_formatted_string
 	timer.autostart = true
 
+	last_timer_settings = {
+		"format_string": editor_info_formatted_string,
+		"wait_time": minutes,
+		"target_directory": target_directory,
+	}
+
 	# save timer as scene to autoload
 	const SCENE_PATH = "res://addons/autoscreenshot/ingame_timer.tscn"
 	var scene := PackedScene.new()
 	var packed_success := scene.pack(timer)
 	if packed_success == OK:
 		var resource_success := ResourceSaver.save(scene, SCENE_PATH)
-		if resource_success == OK:
-			self.add_autoload_singleton("AutoScreenShotter", SCENE_PATH)
+		if resource_success == OK and not has_autoload():
+			self.add_autoload_singleton(INGAME_AUTOLOAD_NAME, SCENE_PATH)
 		else:
 			push_warning("Failed to save scene as resource: ", error_string(resource_success))
 	else:
 		push_warning("Couldn't pack timer scene: ", error_string(packed_success))
+	timer.queue_free()

@@ -16,6 +16,11 @@ func take_a_screenshot() -> void:
 	var texture := viewport.get_texture().get_image()
 
 	var datetime: Dictionary = Time.get_datetime_dict_from_system()
+	datetime["month"] = "%02d" % datetime["month"]
+	datetime["day"] = "%02d" % datetime["day"]
+	datetime["hour"] = "%02d" % datetime["hour"]
+	datetime["minute"] = "%02d" % datetime["minute"]
+	datetime["second"] = "%02d" % datetime["second"]
 	var filename: String = format_string.format(datetime)
 
 	print("Taking a in-game screen shot: ", filename)
