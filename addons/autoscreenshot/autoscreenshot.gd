@@ -150,6 +150,7 @@ func make_manual_button() -> void:
 	editor_manual_button = Button.new()
 	#editor_manual_button.text = "Screenshot"
 	editor_manual_button.icon = load("res://addons/autoscreenshot/icon_small.png")
+	editor_manual_button.tooltip_text = "Capture a screenshot"
 	editor_manual_button.expand_icon = true
 	editor_manual_button.custom_minimum_size.x = 30
 	editor_manual_button.custom_minimum_size.y = 30
@@ -181,7 +182,7 @@ func take_a_screenshot() -> void:
 
 	# formatter payload
 	datetime["project"] = project_name
-	datetime["scene"] = scene_name
+	datetime["scene"] = "unsaved" if scene_name.is_empty() else scene_name
 	datetime["month"] = "%02d" % datetime["month"]
 	datetime["day"] = "%02d" % datetime["day"]
 	datetime["hour"] = "%02d" % datetime["hour"]
