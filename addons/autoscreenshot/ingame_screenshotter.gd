@@ -25,3 +25,9 @@ func take_a_screenshot() -> void:
 
 	print("Taking a in-game screen shot: ", filename)
 	texture.save_png(target_directory.path_join(filename))
+
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey:
+		if event.is_pressed() and event.keycode == KEY_F12:
+			take_a_screenshot()
