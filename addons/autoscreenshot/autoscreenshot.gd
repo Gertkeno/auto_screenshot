@@ -155,12 +155,13 @@ func make_manual_button() -> void:
 	editor_manual_button.custom_minimum_size.x = 30
 	editor_manual_button.custom_minimum_size.y = 30
 	add_control_to_container(CONTAINER_TOOLBAR, editor_manual_button)
-	editor_manual_button.pressed.connect(take_a_screenshot)
+	editor_manual_button.pressed.connect(take_a_screenshot.bind(true))
 
 
 var last_pics_of_open_scene: Dictionary = {}
-func take_a_screenshot() -> void:
+func take_a_screenshot(force: bool = false) -> void:
 	var ed_settings := EditorInterface.get_editor_settings()
+
 	# check history version #
 	var edited_scene_root: Node = EditorInterface.get_edited_scene_root()
 	var history_id: int = ur.get_object_history_id(edited_scene_root)
@@ -168,7 +169,7 @@ func take_a_screenshot() -> void:
 	var skip_by_history: bool = ed_settings.get_setting(editor_settings_preface + "skip_by_history")
 
 	if last_pics_of_open_scene.has(edited_scene_root.scene_file_path):
-		if skip_by_history and last_pics_of_open_scene[edited_scene_root.scene_file_path] == history_version:
+		if not force and skip_by_history and last_pics_of_open_scene[edited_scene_root.scene_file_path] == history_version:
 			print("No scene change detected, skipping screenshot")
 			return
 	last_pics_of_open_scene[edited_scene_root.scene_file_path] = history_version
@@ -188,6 +189,7 @@ func take_a_screenshot() -> void:
 	datetime["hour"] = "%02d" % datetime["hour"]
 	datetime["minute"] = "%02d" % datetime["minute"]
 	datetime["second"] = "%02d" % datetime["second"]
+
 	var format_string: String = ed_settings.get_setting(editor_settings_preface + "file_format_string")
 
 	# ensure directory
