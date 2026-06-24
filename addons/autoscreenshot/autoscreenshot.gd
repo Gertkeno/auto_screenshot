@@ -38,7 +38,7 @@ var editor_manual_button: Button
 
 var ur: EditorUndoRedoManager
 
-func _enter_tree() -> void:
+func _enable_plugin() -> void:
 	ur = self.get_undo_redo()
 	# Editor settings #
 	var ed_settings := EditorInterface.get_editor_settings()
@@ -136,12 +136,15 @@ func _exit_tree() -> void:
 	if editor_manual_button:
 		editor_manual_button.queue_free()
 		editor_manual_button = null
-	self.remove_autoload_singleton(INGAME_AUTOLOAD_NAME)
 
 	# don't do this lol
 	#var ed_settings := EditorInterface.get_editor_settings()
 	#for key in default_editor_settings.keys():
 		#ed_settings.erase(editor_settings_preface + key)
+
+
+func _disable_plugin() -> void:
+	self.remove_autoload_singleton(INGAME_AUTOLOAD_NAME)
 
 
 func make_manual_button() -> void:

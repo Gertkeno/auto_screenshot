@@ -24,6 +24,8 @@ func take_a_screenshot() -> void:
 	var filename: String = format_string.format(datetime)
 
 	print("Taking a in-game screen shot: ", filename)
+	if not DirAccess.dir_exists_absolute(target_directory):
+		DirAccess.make_dir_absolute(target_directory)
 	texture.save_png(target_directory.path_join(filename))
 
 
