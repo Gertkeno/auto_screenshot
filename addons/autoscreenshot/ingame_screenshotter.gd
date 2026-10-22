@@ -25,11 +25,23 @@ func take_a_screenshot() -> void:
 
 	print("Taking a in-game screen shot: ", filename)
 	if not DirAccess.dir_exists_absolute(target_directory):
-		DirAccess.make_dir_absolute(target_directory)
-	texture.save_png(target_directory.path_join(filename))
+		DirAccess.make_dir_recursive_absolute(target_directory)
+	texture.save_png(get_unique_path(target_directory, filename))
 
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		if event.is_pressed() and event.keycode == KEY_F12:
 			take_a_screenshot()
+
+
+# Preserve custom formats while preventing rapid captures from overwriting files.
+static func get_unique_path(directory: String, filename: String) -> String:
+	var path := directory.path_join(filename)
+	var index := 1
+	while FileAccess.file_exists(path):
+		path = directory.path_join("%s_%03d.%s" % [
+			filename.get_basename(), index, filename.get_extension()
+		])
+		index += 1
+	return path
