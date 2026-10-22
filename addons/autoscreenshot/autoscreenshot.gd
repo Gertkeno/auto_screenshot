@@ -18,13 +18,17 @@ extends EditorPlugin
 # `  target folder
 # `  file format string YYYY-MM-DD_hh.mm.ss_project_scene_mode.png
 
+const Screenshotter = preload("res://addons/autoscreenshot/ingame_screenshotter.gd")
 const INGAME_AUTOLOAD_NAME = "AutoScreenShotter"
+const TOGGLE_SHORTCUT_PATH = "auto_screenshot/toggle_capture"
+const MANUAL_SHORTCUT_PATH = "auto_screenshot/take_screenshot"
 const editor_settings_preface = "editors/auto_screenshot/"
 var default_editor_settings: Dictionary = {
 	"enable_2d": true,
 	"enable_3d": true,
 	"enable_editor": true,
 	"minutes_per_screenshot": 15,
+	"start_automatically": true,
 	"skip_by_history": true,
 	"target_folder": "user://auto_screenshot",
 	"file_format_string": "{year}-{month}-{day}_{hour}.{minute}.{second}_{project}_{scene}_{mode}.png",
@@ -35,13 +39,30 @@ var default_editor_settings: Dictionary = {
 
 var editor_timer: Timer
 var editor_manual_button: Button
+var capture_enabled: bool = true
+var toggle_capture_shortcut: Shortcut
+var manual_capture_shortcut: Shortcut
 
 var ur: EditorUndoRedoManager
 
+func _enter_tree() -> void:
+	_initialize_plugin.call_deferred()
+
+
 func _enable_plugin() -> void:
+	_initialize_plugin()
+
+
+func _initialize_plugin() -> void:
+	if not is_inside_tree() or is_instance_valid(editor_timer):
+		return
 	ur = self.get_undo_redo()
 	# Editor settings #
 	var ed_settings := EditorInterface.get_editor_settings()
+	toggle_capture_shortcut = register_shortcut(ed_settings, TOGGLE_SHORTCUT_PATH,
+		"Start/Stop Capture", Screenshotter.make_shortcut(KEY_F12, true, true))
+	manual_capture_shortcut = register_shortcut(ed_settings, MANUAL_SHORTCUT_PATH,
+		"Take Screenshot", Screenshotter.make_shortcut(KEY_F12))
 	for key: String in default_editor_settings.keys():
 		var default: Variant = default_editor_settings[key]
 		if !ed_settings.has_setting(editor_settings_preface + key):
@@ -49,6 +70,10 @@ func _enable_plugin() -> void:
 			ed_settings.set(editor_settings_preface + key, default)
 		ed_settings.set_initial_value(editor_settings_preface + key, default, false)
 
+	ed_settings.add_property_info({
+		"name": editor_settings_preface + "start_automatically",
+		"type": TYPE_BOOL,
+	})
 	ed_settings.add_property_info({
 		"name": editor_settings_preface + "enable_2d",
 		"type": TYPE_BOOL,
@@ -116,8 +141,10 @@ func _enable_plugin() -> void:
 	var enable_2d: bool = ed_settings.get_setting(editor_settings_preface + "enable_2d")
 	var enable_3d: bool = ed_settings.get_setting(editor_settings_preface + "enable_3d")
 	var enable_editor: bool = ed_settings.get_setting(editor_settings_preface + "enable_editor")
-	if enable_2d or enable_3d or enable_editor:
-		print("Screenshots every %d minutes" % (editor_timer.wait_time / 60))
+	capture_enabled = ed_settings.get_setting(editor_settings_preface + "start_automatically")
+	set_process_shortcut_input(true)
+	if capture_enabled and (enable_2d or enable_3d or enable_editor):
+		print("Screenshots every %s seconds" % editor_timer.wait_time)
 		editor_timer.start()
 	else:
 		print("Editor screenshots disabled")
@@ -132,7 +159,15 @@ func _enable_plugin() -> void:
 
 
 func _exit_tree() -> void:
-	editor_timer.queue_free()
+	for shortcut: Shortcut in [toggle_capture_shortcut, manual_capture_shortcut]:
+		if shortcut != null and shortcut.changed.is_connected(editor_setting_changed):
+			shortcut.changed.disconnect(editor_setting_changed)
+	var ed_settings := EditorInterface.get_editor_settings()
+	if ed_settings.settings_changed.is_connected(editor_setting_changed):
+		ed_settings.settings_changed.disconnect(editor_setting_changed)
+	if is_instance_valid(editor_timer):
+		editor_timer.queue_free()
+		editor_timer = null
 	if editor_manual_button:
 		editor_manual_button.queue_free()
 		editor_manual_button = null
@@ -145,6 +180,27 @@ func _exit_tree() -> void:
 
 func _disable_plugin() -> void:
 	self.remove_autoload_singleton(INGAME_AUTOLOAD_NAME)
+
+
+func _shortcut_input(event: InputEvent) -> void:
+	if Screenshotter.is_shortcut_pressed(event, toggle_capture_shortcut):
+		capture_enabled = not capture_enabled
+		editor_setting_changed()
+		print("Auto Screenshot: editor capture ", "started" if capture_enabled else "stopped")
+		get_viewport().set_input_as_handled()
+	elif Screenshotter.is_shortcut_pressed(event, manual_capture_shortcut):
+		take_a_screenshot(true)
+		get_viewport().set_input_as_handled()
+
+
+func register_shortcut(settings: EditorSettings, path: String, label: String, default: Shortcut) -> Shortcut:
+	var shortcut: Shortcut = settings.get_shortcut(path) if settings.has_shortcut(path) else default
+	shortcut.resource_name = label
+	# Preserve user bindings on reload and provide Godot's normal Revert action.
+	shortcut.set_meta("original", default.events.duplicate(true))
+	settings.add_shortcut(path, shortcut)
+	shortcut.changed.connect(editor_setting_changed, CONNECT_DEFERRED)
+	return shortcut
 
 
 func make_manual_button() -> void:
@@ -238,6 +294,8 @@ func has_autoload() -> bool:
 
 
 func editor_setting_changed() -> void:
+	if not is_instance_valid(editor_timer):
+		return
 	var ed_settings := EditorInterface.get_editor_settings()
 
 	var enable_in_game: bool = ed_settings.get_setting(editor_settings_preface + "enable_in_game")
@@ -254,11 +312,11 @@ func editor_setting_changed() -> void:
 	var enable_2d: bool = ed_settings.get_setting(editor_settings_preface + "enable_2d")
 	var enable_3d: bool = ed_settings.get_setting(editor_settings_preface + "enable_3d")
 	var enable_editor: bool = ed_settings.get_setting(editor_settings_preface + "enable_editor")
-	if enable_2d or enable_3d or enable_editor:
+	if capture_enabled and (enable_2d or enable_3d or enable_editor):
 		if editor_timer.wait_time != new_wait_time:
 			print("Screenshots every %d minutes" % (new_wait_time / 60))
 		editor_timer.wait_time = new_wait_time
-		if editor_timer.time_left > new_wait_time:
+		if editor_timer.is_stopped() or editor_timer.time_left > new_wait_time:
 			editor_timer.start()
 	else:
 		editor_timer.stop()
@@ -275,6 +333,9 @@ var last_timer_settings: Dictionary = {}
 func make_in_game_screenshot_scene(ed_settings: EditorSettings) -> void:
 	# in-game timer properties
 	var minutes: float = ed_settings.get_setting(editor_settings_preface + "minutes_per_in_game_screenshot")
+	var start_automatically: bool = ed_settings.get_setting(editor_settings_preface + "start_automatically")
+	var toggle_events := var_to_str(toggle_capture_shortcut.events)
+	var manual_events := var_to_str(manual_capture_shortcut.events)
 	var target_directory: String = ed_settings.get_setting(editor_settings_preface + "target_folder")
 	var format_string: String = ed_settings.get_setting(editor_settings_preface + "file_format_string")
 
@@ -291,6 +352,9 @@ func make_in_game_screenshot_scene(ed_settings: EditorSettings) -> void:
 	var skip_set_autoload: bool = not last_timer_settings.is_empty() \
 		and last_timer_settings["format_string"] == editor_info_formatted_string \
 		and last_timer_settings["wait_time"] == minutes \
+		and last_timer_settings["autostart"] == start_automatically \
+		and last_timer_settings["toggle_events"] == toggle_events \
+		and last_timer_settings["manual_events"] == manual_events \
 		and last_timer_settings["target_directory"] == target_directory
 	if skip_set_autoload:
 		return
@@ -307,11 +371,16 @@ func make_in_game_screenshot_scene(ed_settings: EditorSettings) -> void:
 	timer.wait_time = minutes * 60
 	timer.target_directory = target_directory
 	timer.format_string = editor_info_formatted_string
-	timer.autostart = true
+	timer.autostart = start_automatically
+	timer.toggle_capture_shortcut = toggle_capture_shortcut.duplicate(true)
+	timer.manual_capture_shortcut = manual_capture_shortcut.duplicate(true)
 
 	last_timer_settings = {
 		"format_string": editor_info_formatted_string,
 		"wait_time": minutes,
+		"autostart": start_automatically,
+		"toggle_events": toggle_events,
+		"manual_events": manual_events,
 		"target_directory": target_directory,
 	}
 
@@ -321,8 +390,14 @@ func make_in_game_screenshot_scene(ed_settings: EditorSettings) -> void:
 	var packed_success := scene.pack(timer)
 	if packed_success == OK:
 		var resource_success := ResourceSaver.save(scene, SCENE_PATH)
-		if resource_success == OK and not has_autoload():
-			self.add_autoload_singleton(INGAME_AUTOLOAD_NAME, SCENE_PATH)
+		if resource_success == OK:
+			# Godot 4.7 can resolve a new autoload by UID before the next scan.
+			var scene_uid := ResourceLoader.get_resource_uid(SCENE_PATH)
+			if scene_uid != ResourceUID.INVALID_ID and not ResourceUID.has_id(scene_uid):
+				ResourceUID.add_id(scene_uid, SCENE_PATH)
+			EditorInterface.get_resource_filesystem().update_file(SCENE_PATH)
+			if not has_autoload():
+				self.add_autoload_singleton(INGAME_AUTOLOAD_NAME, SCENE_PATH)
 		else:
 			push_warning("Failed to save scene as resource: ", error_string(resource_success))
 	else:

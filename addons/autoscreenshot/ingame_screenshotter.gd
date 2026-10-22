@@ -2,6 +2,8 @@ extends Timer
 
 @export var target_directory: String
 @export var format_string: String
+@export var toggle_capture_shortcut: Shortcut = make_shortcut(KEY_F12, true, true)
+@export var manual_capture_shortcut: Shortcut = make_shortcut(KEY_F12)
 
 func _ready() -> void:
 	# do not take automatic screenshots in exported builds
@@ -30,6 +32,29 @@ func take_a_screenshot() -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if event is InputEventKey:
-		if event.is_pressed() and event.keycode == KEY_F12:
-			take_a_screenshot()
+	if is_shortcut_pressed(event, toggle_capture_shortcut):
+		if is_stopped():
+			start()
+			print("Auto Screenshot: in-game capture started")
+		else:
+			stop()
+			print("Auto Screenshot: in-game capture stopped")
+		get_viewport().set_input_as_handled()
+	elif is_shortcut_pressed(event, manual_capture_shortcut):
+		take_a_screenshot()
+		get_viewport().set_input_as_handled()
+
+
+static func is_shortcut_pressed(event: InputEvent, shortcut: Shortcut) -> bool:
+	return shortcut != null and event.is_pressed() and not event.is_echo() \
+		and shortcut.matches_event(event)
+
+
+static func make_shortcut(keycode: Key, ctrl: bool = false, shift: bool = false) -> Shortcut:
+	var key := InputEventKey.new()
+	key.keycode = keycode
+	key.ctrl_pressed = ctrl
+	key.shift_pressed = shift
+	var shortcut := Shortcut.new()
+	shortcut.events = [key]
+	return shortcut
