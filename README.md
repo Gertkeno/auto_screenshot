@@ -40,7 +40,7 @@ viewport (canvas), 3d viewport, full-editor, or in-game.
 
 Default value: `{year}-{month}-{day}_{hour}.{minute}.{second}_{project}_{scene}_{mode}.png`
 
-Always saves in `png` format.
+Saves in png, webp, jpg, exr, or dds format (Godot's built in support) by extension.
 
 [camera-icon]: https://game-icons.net/1x1/delapouite/photo-camera.html
 [time-icon]: https://game-icons.net/1x1/delapouite/backward-time.html

@@ -19,7 +19,8 @@ extends EditorPlugin
 # `  file format string YYYY-MM-DD_hh.mm.ss_project_scene_mode.png
 
 const INGAME_AUTOLOAD_NAME = "AutoScreenShotter"
-const editor_settings_preface = "editors/auto_screenshot/"
+const EDITOR_SETTINGS_PREFIX = "editors/auto_screenshot/"
+const Screenshotter = preload("res://addons/autoscreenshot/ingame_screenshotter.gd")
 var default_editor_settings: Dictionary = {
 	"enable_2d": true,
 	"enable_3d": true,
@@ -35,6 +36,7 @@ var default_editor_settings: Dictionary = {
 
 var editor_timer: Timer
 var editor_manual_button: Button
+var capture_shortcut: Shortcut
 
 var ur: EditorUndoRedoManager
 
@@ -44,58 +46,58 @@ func _enable_plugin() -> void:
 	var ed_settings := EditorInterface.get_editor_settings()
 	for key: String in default_editor_settings.keys():
 		var default: Variant = default_editor_settings[key]
-		if !ed_settings.has_setting(editor_settings_preface + key):
-			print("Making editor setting: ", editor_settings_preface + key)
-			ed_settings.set(editor_settings_preface + key, default)
-		ed_settings.set_initial_value(editor_settings_preface + key, default, false)
+		if !ed_settings.has_setting(EDITOR_SETTINGS_PREFIX + key):
+			print("Making editor setting: ", EDITOR_SETTINGS_PREFIX + key)
+			ed_settings.set_setting(EDITOR_SETTINGS_PREFIX + key, default)
+		ed_settings.set_initial_value(EDITOR_SETTINGS_PREFIX + key, default, false)
 
 	ed_settings.add_property_info({
-		"name": editor_settings_preface + "enable_2d",
+		"name": EDITOR_SETTINGS_PREFIX + "enable_2d",
 		"type": TYPE_BOOL,
 	})
 	ed_settings.add_property_info({
-		"name": editor_settings_preface + "enable_3d",
+		"name": EDITOR_SETTINGS_PREFIX + "enable_3d",
 		"type": TYPE_BOOL,
 	})
 	ed_settings.add_property_info({
-		"name": editor_settings_preface + "enable_editor",
+		"name": EDITOR_SETTINGS_PREFIX + "enable_editor",
 		"type": TYPE_BOOL,
 	})
 	ed_settings.add_property_info({
-		"name": editor_settings_preface + "minutes_per_screenshot",
+		"name": EDITOR_SETTINGS_PREFIX + "minutes_per_screenshot",
 		"type": TYPE_FLOAT,
 		"hint": PROPERTY_HINT_RANGE,
 		"hint_string": "0,240,1",
 	})
 	ed_settings.add_property_info({
-		"name": editor_settings_preface + "skip_by_history",
+		"name": EDITOR_SETTINGS_PREFIX + "skip_by_history",
 		"type": TYPE_BOOL,
 	})
 	ed_settings.add_property_info({
-		"name": editor_settings_preface + "show_manual_button",
+		"name": EDITOR_SETTINGS_PREFIX + "show_manual_button",
 		"type": TYPE_BOOL,
 	});
 
 	# file access
 	ed_settings.add_property_info({
-		"name": editor_settings_preface + "target_folder",
+		"name": EDITOR_SETTINGS_PREFIX + "target_folder",
 		"type": TYPE_STRING,
 		"hint": PROPERTY_HINT_GLOBAL_DIR,
 	})
 	ed_settings.add_property_info({
-		"name": editor_settings_preface + "file_format_string",
+		"name": EDITOR_SETTINGS_PREFIX + "file_format_string",
 		"type": TYPE_STRING,
 		"hint": PROPERTY_HINT_PLACEHOLDER_TEXT,
-		"hint_string": "{year}-{month}-{day}_{hour}.{minute}.{second}_{project}_{scene}_{mode}.png"
+		"hint_string": "{year}-{month}-{day}_{hour}.{minute}.{second}_{project}_{scene}_{mode}.png",
 	})
 
 	# in game screen shots, via autoload
 	ed_settings.add_property_info({
-		"name": editor_settings_preface + "enable_in_game",
+		"name": EDITOR_SETTINGS_PREFIX + "enable_in_game",
 		"type": TYPE_BOOL,
 	})
 	ed_settings.add_property_info({
-		"name": editor_settings_preface + "minutes_per_in_game_screenshot",
+		"name": EDITOR_SETTINGS_PREFIX + "minutes_per_in_game_screenshot",
 		"type": TYPE_FLOAT,
 		"hint": PROPERTY_HINT_RANGE,
 		"hint_string": "0,240,1",
@@ -107,15 +109,15 @@ func _enable_plugin() -> void:
 	editor_timer = Timer.new()
 	var base := EditorInterface.get_base_control()
 	editor_timer.one_shot = false
-	var minutes_per_screenshot: float = ed_settings.get_setting(editor_settings_preface + "minutes_per_screenshot") * 60
+	var minutes_per_screenshot: float = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "minutes_per_screenshot") * 60
 	editor_timer.wait_time = max(10.0, minutes_per_screenshot)
 
 	base.add_child(editor_timer)
 
 	editor_timer.timeout.connect(take_a_screenshot)
-	var enable_2d: bool = ed_settings.get_setting(editor_settings_preface + "enable_2d")
-	var enable_3d: bool = ed_settings.get_setting(editor_settings_preface + "enable_3d")
-	var enable_editor: bool = ed_settings.get_setting(editor_settings_preface + "enable_editor")
+	var enable_2d: bool = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "enable_2d")
+	var enable_3d: bool = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "enable_3d")
+	var enable_editor: bool = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "enable_editor")
 	if enable_2d or enable_3d or enable_editor:
 		print("Screenshots every %d minutes" % (editor_timer.wait_time / 60))
 		editor_timer.start()
@@ -123,12 +125,18 @@ func _enable_plugin() -> void:
 		print("Editor screenshots disabled")
 		editor_timer.stop()
 
-	if ed_settings.get_setting(editor_settings_preface + "enable_in_game"):
+	if ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "enable_in_game"):
 		make_in_game_screenshot_scene.call_deferred(ed_settings)
 
 	# manual button
-	if ed_settings.get_setting(editor_settings_preface + "show_manual_button"):
+	if ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "show_manual_button"):
 		make_manual_button()
+
+	capture_shortcut = Shortcut.new()
+	var capture_key := InputEventKey.new()
+	capture_key.keycode = KEY_F12
+	capture_shortcut.events.append(capture_key)
+	ed_settings.add_shortcut("auto_screenshot/Editor Screenshot", capture_shortcut)
 
 
 func _exit_tree() -> void:
@@ -140,7 +148,7 @@ func _exit_tree() -> void:
 	# don't do this lol
 	#var ed_settings := EditorInterface.get_editor_settings()
 	#for key in default_editor_settings.keys():
-		#ed_settings.erase(editor_settings_preface + key)
+		#ed_settings.erase(EDITOR_SETTINGS_PREFIX + key)
 
 
 func _disable_plugin() -> void:
@@ -169,7 +177,7 @@ func take_a_screenshot(force: bool = false) -> void:
 	var edited_scene_root: Node = EditorInterface.get_edited_scene_root()
 	var history_id: int = ur.get_object_history_id(edited_scene_root)
 	var history_version: int = ur.get_history_undo_redo(history_id).get_version()
-	var skip_by_history: bool = ed_settings.get_setting(editor_settings_preface + "skip_by_history")
+	var skip_by_history: bool = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "skip_by_history")
 
 	if last_pics_of_open_scene.has(edited_scene_root.scene_file_path):
 		if not force and skip_by_history and last_pics_of_open_scene[edited_scene_root.scene_file_path] == history_version:
@@ -193,16 +201,16 @@ func take_a_screenshot(force: bool = false) -> void:
 	datetime["minute"] = "%02d" % datetime["minute"]
 	datetime["second"] = "%02d" % datetime["second"]
 
-	var format_string: String = ed_settings.get_setting(editor_settings_preface + "file_format_string")
+	var format_string: String = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "file_format_string")
 
 	# ensure directory
-	var target_directory: String = ed_settings.get_setting(editor_settings_preface + "target_folder")
+	var target_directory: String = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "target_folder")
 	DirAccess.make_dir_recursive_absolute(target_directory)
 
 	# 2d/3d viewport
-	var enable_2d: bool = ed_settings.get_setting(editor_settings_preface + "enable_2d")
-	var enable_3d: bool = ed_settings.get_setting(editor_settings_preface + "enable_3d")
-	var enable_editor: bool = ed_settings.get_setting(editor_settings_preface + "enable_editor")
+	var enable_2d: bool = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "enable_2d")
+	var enable_3d: bool = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "enable_3d")
+	var enable_editor: bool = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "enable_editor")
 
 	var filename: String
 	var viewport: Viewport
@@ -215,12 +223,13 @@ func take_a_screenshot(force: bool = false) -> void:
 		filename = format_string.format(datetime)
 		viewport = EditorInterface.get_editor_viewport_2d()
 
-	if viewport.size.x > 10 and viewport.size.y > 10:
-		var img := viewport.get_texture().get_image()
-		print("saving screenshot: ", filename)
-		img.save_png(target_directory.path_join(filename))
-	else:
-		print("viewport too small to screenshot, maybe out of frame?")
+	if viewport != null:
+		if viewport.size.x > 10 and viewport.size.y > 10:
+			var img := viewport.get_texture().get_image()
+			var err := Screenshotter.save_image_by_extension(img, target_directory.path_join(filename))
+			prints("saving screenshot:", filename, error_string(err))
+		else:
+			print("viewport too small to screenshot, maybe out of frame?")
 
 	# editor viewport
 	if enable_editor:
@@ -228,8 +237,8 @@ func take_a_screenshot(force: bool = false) -> void:
 		var editor_viewport := EditorInterface.get_base_control().get_viewport()
 		var editor_img := editor_viewport.get_texture().get_image()
 		var editor_filename: String = format_string.format(datetime)
-		print("saving screenshot: ", editor_filename)
-		editor_img.save_png(target_directory.path_join(editor_filename))
+		var err := Screenshotter.save_image_by_extension(editor_img, target_directory.path_join(editor_filename))
+		prints("saving screenshot:", editor_filename, error_string(err))
 
 
 func has_autoload() -> bool:
@@ -240,7 +249,7 @@ func has_autoload() -> bool:
 func editor_setting_changed() -> void:
 	var ed_settings := EditorInterface.get_editor_settings()
 
-	var enable_in_game: bool = ed_settings.get_setting(editor_settings_preface + "enable_in_game")
+	var enable_in_game: bool = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "enable_in_game")
 	# adding/removing singleton commits history.
 	if enable_in_game:
 		make_in_game_screenshot_scene(ed_settings)
@@ -248,12 +257,12 @@ func editor_setting_changed() -> void:
 		self.remove_autoload_singleton(INGAME_AUTOLOAD_NAME)
 		last_timer_settings = {}
 	
-	var minutes_per_screenshot: float = ed_settings.get_setting(editor_settings_preface + "minutes_per_screenshot")
+	var minutes_per_screenshot: float = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "minutes_per_screenshot")
 	var new_wait_time: float = max(10.0, minutes_per_screenshot * 60)
 
-	var enable_2d: bool = ed_settings.get_setting(editor_settings_preface + "enable_2d")
-	var enable_3d: bool = ed_settings.get_setting(editor_settings_preface + "enable_3d")
-	var enable_editor: bool = ed_settings.get_setting(editor_settings_preface + "enable_editor")
+	var enable_2d: bool = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "enable_2d")
+	var enable_3d: bool = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "enable_3d")
+	var enable_editor: bool = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "enable_editor")
 	if enable_2d or enable_3d or enable_editor:
 		if editor_timer.wait_time != new_wait_time:
 			print("Screenshots every %d minutes" % (new_wait_time / 60))
@@ -263,7 +272,7 @@ func editor_setting_changed() -> void:
 	else:
 		editor_timer.stop()
 	
-	if ed_settings.get_setting(editor_settings_preface + "show_manual_button"):
+	if ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "show_manual_button"):
 		make_manual_button()
 	else:
 		if editor_manual_button:
@@ -274,9 +283,9 @@ func editor_setting_changed() -> void:
 var last_timer_settings: Dictionary = {}
 func make_in_game_screenshot_scene(ed_settings: EditorSettings) -> void:
 	# in-game timer properties
-	var minutes: float = ed_settings.get_setting(editor_settings_preface + "minutes_per_in_game_screenshot")
-	var target_directory: String = ed_settings.get_setting(editor_settings_preface + "target_folder")
-	var format_string: String = ed_settings.get_setting(editor_settings_preface + "file_format_string")
+	var minutes: float = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "minutes_per_in_game_screenshot")
+	var target_directory: String = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "target_folder")
+	var format_string: String = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "file_format_string")
 
 	# The format string will not have editor data available, pre-format some
 	var project_name: String = ProjectSettings.get_setting("application/config/name", "no-name")
@@ -328,3 +337,8 @@ func make_in_game_screenshot_scene(ed_settings: EditorSettings) -> void:
 	else:
 		push_warning("Couldn't pack timer scene: ", error_string(packed_success))
 	timer.queue_free()
+
+
+func _input(event: InputEvent) -> void:
+	if capture_shortcut.matches_event(event) and event.is_pressed():
+		take_a_screenshot(true)
