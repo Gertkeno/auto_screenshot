@@ -32,15 +32,21 @@ var default_editor_settings: Dictionary = {
 	"enable_in_game": true,
 	"minutes_per_in_game_screenshot": 3,
 	"show_manual_button": true,
+	"timelapse_frames_per_second": 3,
 }
 
 var editor_timer: Timer
 var editor_manual_button: Button
-var capture_shortcut: Shortcut
+var capture_shortcut := Shortcut.new()
+
+var toggle_timelapse_shortcut := Shortcut.new()
+var timelapse_timer: Timer
+var timelapse_index: int = 0
+var timelapse_packer: ZIPPacker
 
 var ur: EditorUndoRedoManager
 
-func _enable_plugin() -> void:
+func _enter_tree() -> void:
 	ur = self.get_undo_redo()
 	# Editor settings #
 	var ed_settings := EditorInterface.get_editor_settings()
@@ -77,6 +83,12 @@ func _enable_plugin() -> void:
 		"name": EDITOR_SETTINGS_PREFIX + "show_manual_button",
 		"type": TYPE_BOOL,
 	});
+	ed_settings.add_property_info({
+		"name": EDITOR_SETTINGS_PREFIX + "timelapse_frames_per_second",
+		"type": TYPE_FLOAT,
+		"hint": PROPERTY_HINT_RANGE,
+		"hint_string": "0.25,30.0,0.25",
+	})
 
 	# file access
 	ed_settings.add_property_info({
@@ -108,7 +120,6 @@ func _enable_plugin() -> void:
 	# Timer Node #
 	editor_timer = Timer.new()
 	var base := EditorInterface.get_base_control()
-	editor_timer.one_shot = false
 	var minutes_per_screenshot: float = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "minutes_per_screenshot") * 60
 	editor_timer.wait_time = max(10.0, minutes_per_screenshot)
 
@@ -132,15 +143,29 @@ func _enable_plugin() -> void:
 	if ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "show_manual_button"):
 		make_manual_button()
 
-	capture_shortcut = Shortcut.new()
 	var capture_key := InputEventKey.new()
 	capture_key.keycode = KEY_F12
 	capture_shortcut.events.append(capture_key)
 	ed_settings.add_shortcut("auto_screenshot/Editor Screenshot", capture_shortcut)
 
+	# time lapse
+	var timelapse_key := InputEventKey.new()
+	timelapse_key.keycode = KEY_F12
+	timelapse_key.alt_pressed = true
+	toggle_timelapse_shortcut.events.append(timelapse_key)
+	ed_settings.add_shortcut("auto_screenshot/Toggle Timelapse", toggle_timelapse_shortcut)
+
+	timelapse_timer = Timer.new()
+	timelapse_timer.timeout.connect(_on_timelapse_capture)
+	base.add_child(timelapse_timer)
+
 
 func _exit_tree() -> void:
+	if not timelapse_timer.is_stopped():
+		stop_timelapse()
+
 	editor_timer.queue_free()
+	timelapse_timer.queue_free()
 	if editor_manual_button:
 		editor_manual_button.queue_free()
 		editor_manual_button = null
@@ -165,8 +190,9 @@ func make_manual_button() -> void:
 	editor_manual_button.expand_icon = true
 	editor_manual_button.custom_minimum_size.x = 30
 	editor_manual_button.custom_minimum_size.y = 30
-	add_control_to_container(CONTAINER_TOOLBAR, editor_manual_button)
 	editor_manual_button.pressed.connect(take_a_screenshot.bind(true))
+	await get_tree().process_frame
+	add_control_to_container(CONTAINER_TOOLBAR, editor_manual_button)
 
 
 var last_pics_of_open_scene: Dictionary = {}
@@ -186,7 +212,7 @@ func take_a_screenshot(force: bool = false) -> void:
 	last_pics_of_open_scene[edited_scene_root.scene_file_path] = history_version
 
 	# Deduce Screen Shots folder #
-	var datetime: Dictionary = Time.get_datetime_dict_from_system()
+	var datetime: Dictionary = Screenshotter.datetime_padded_dict()
 	var project_name: String = ProjectSettings.get_setting("application/config/name", "no-name")
 	var scene_name: String = edited_scene_root.scene_file_path.get_file()
 	var dot: int = scene_name.rfind(".")
@@ -195,11 +221,6 @@ func take_a_screenshot(force: bool = false) -> void:
 	# formatter payload
 	datetime["project"] = project_name
 	datetime["scene"] = "unsaved" if scene_name.is_empty() else scene_name
-	datetime["month"] = "%02d" % datetime["month"]
-	datetime["day"] = "%02d" % datetime["day"]
-	datetime["hour"] = "%02d" % datetime["hour"]
-	datetime["minute"] = "%02d" % datetime["minute"]
-	datetime["second"] = "%02d" % datetime["second"]
 
 	var format_string: String = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "file_format_string")
 
@@ -239,6 +260,67 @@ func take_a_screenshot(force: bool = false) -> void:
 		var editor_filename: String = format_string.format(datetime)
 		var err := Screenshotter.save_image_by_extension(editor_img, target_directory.path_join(editor_filename))
 		prints("saving screenshot:", editor_filename, error_string(err))
+
+
+var _timelapse_editor_texture: Texture2D
+func _on_timelapse_capture() -> void:
+	var img_save_data := _timelapse_editor_texture.get_image().save_png_to_buffer()
+
+	timelapse_packer.start_file("%04d.png" % timelapse_index)
+	timelapse_packer.write_file(img_save_data)
+	timelapse_packer.close_file()
+	timelapse_index += 1
+
+
+func start_timelapse() -> void:
+	if !timelapse_timer.is_stopped():
+		push_warning("Timelapse already running!")
+		return
+	var ed_settings := EditorInterface.get_editor_settings()
+	var editor_viewport := EditorInterface.get_base_control().get_viewport()
+	_timelapse_editor_texture = editor_viewport.get_texture()
+
+	var target_directory: String = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "target_folder")
+	DirAccess.make_dir_recursive_absolute(target_directory)
+	var format_string: String = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "file_format_string")
+	var project_name: String = ProjectSettings.get_setting("application/config/name", "no-name")
+
+	var datetime := Screenshotter.datetime_padded_dict()
+	datetime["project"] = project_name
+	datetime["scene"] = "na"
+	datetime["mode"] = "timelapse"
+
+	timelapse_packer = ZIPPacker.new()
+	var pack_path: String = target_directory.path_join(format_string.format(datetime).get_basename() + ".zip")
+	var create_err := timelapse_packer.open(pack_path, ZIPPacker.APPEND_CREATE)
+	if create_err != OK:
+		prints("Failed to create zip packer for timelapse", pack_path, error_string(create_err))
+		return
+	timelapse_packer.compression_level = ZIPPacker.COMPRESSION_NONE
+	timelapse_index = 0
+
+	prints("Starting timelapse at", pack_path)
+	var timelapse_fps: float = ed_settings.get_setting(EDITOR_SETTINGS_PREFIX + "timelapse_frames_per_second")
+	timelapse_timer.start(1.0 / maxf(timelapse_fps, 1.0))
+
+
+func stop_timelapse() -> void:
+	if timelapse_timer.is_stopped():
+		return # already stopped
+
+	timelapse_timer.stop()
+	var close_err := timelapse_packer.close()
+	if close_err != OK:
+		prints("Failed to close zip packer for timelapse!")
+		return
+	prints("Wrote", timelapse_index, "timelapse images!")
+
+
+func toggle_timelapse() -> void:
+	if timelapse_timer.is_stopped():
+		start_timelapse()
+	else:
+		stop_timelapse()
 
 
 func has_autoload() -> bool:
@@ -342,3 +424,5 @@ func make_in_game_screenshot_scene(ed_settings: EditorSettings) -> void:
 func _input(event: InputEvent) -> void:
 	if capture_shortcut.matches_event(event) and event.is_pressed():
 		take_a_screenshot(true)
+	if toggle_timelapse_shortcut.matches_event(event) and event.is_pressed():
+		toggle_timelapse()

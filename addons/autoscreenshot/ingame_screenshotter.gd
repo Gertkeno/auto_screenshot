@@ -15,12 +15,7 @@ func take_a_screenshot() -> void:
 	var viewport: Viewport = get_viewport()
 	var texture := viewport.get_texture().get_image()
 
-	var datetime: Dictionary = Time.get_datetime_dict_from_system()
-	datetime["month"] = "%02d" % datetime["month"]
-	datetime["day"] = "%02d" % datetime["day"]
-	datetime["hour"] = "%02d" % datetime["hour"]
-	datetime["minute"] = "%02d" % datetime["minute"]
-	datetime["second"] = "%02d" % datetime["second"]
+	var datetime: Dictionary = datetime_padded_dict()
 	var filename: String = format_string.format(datetime)
 
 	print("Taking a in-game screen shot: ", filename)
@@ -34,6 +29,16 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		if event.is_pressed() and event.keycode == KEY_F12:
 			take_a_screenshot()
+
+
+static func datetime_padded_dict() -> Dictionary:
+	var datetime: Dictionary = Time.get_datetime_dict_from_system()
+	datetime["month"] = "%02d" % datetime["month"]
+	datetime["day"] = "%02d" % datetime["day"]
+	datetime["hour"] = "%02d" % datetime["hour"]
+	datetime["minute"] = "%02d" % datetime["minute"]
+	datetime["second"] = "%02d" % datetime["second"]
+	return datetime
 
 
 static func save_image_by_extension(img: Image, path: String) -> Error:
